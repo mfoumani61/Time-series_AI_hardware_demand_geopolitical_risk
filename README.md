@@ -2,13 +2,12 @@
 # Paper Title: A Comparative Time-Series Analysis of AI Hardware Demand Considering Geopolitical Risk in the Asia-Pacific Region: The Case Study of China and South Korea
 
 ├── README.md
-├── LICENSE
 ├── data/
 │   ├── raw/
 │   │   ├── china_raw.csv
 │   │   └── south_korea_raw.csv
 │   └── processed/
-│       └── panel_1990_2026.csv
+│       └── normalized_1990_2026.csv
 ├── R/
 │   ├── 00_setup.R
 │   ├── 01_data_cleaning.R
