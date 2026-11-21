@@ -1,0 +1,314 @@
+├── R/
+│   ├── 01_setup.R
+│   ├── 02_data_cleaning.R
+│   ├── 03_descriptives_plots.R
+│   ├── 04_structural_break.R
+│   ├── 05_relative_importance.R
+│   ├── 06_regressions_models_7_8.R
+│   └── 07_outputs_tables_figures.R
+
+# Step 1: Load Required Packages
+
+# Install if not already installed
+# install.packages(c("tidyverse", "tseries", "urca", "vars", "lmtest", "car", "forecast", "ggplot2", "corrplot", "stargazer"))
+
+library(tidyverse)   # Data manipulation and plotting
+library(tseries)     # ADF test
+library(urca)        # Johansen cointegration test
+library(vars)        # VAR and ECM
+library(lmtest)      # Diagnostic tests (DW, Breusch-Pagan)
+library(car)         # VIF for multicollinearity
+library(forecast)    # For ARIMA (if needed)
+library(ggplot2)     # For publication-quality plots
+library(corrplot)    # Correlation matrix visualization'
+library(PerformanceAnalytics) # Using PerformanceAnalytics for scatter plots
+library(stargazer)   # For generating publication-ready tables
+
+
+# Step 2: Load and Prepare Data
+
+# Set working directory (adjust to your path)
+# setwd("C:/Your/Path/Here")
+
+# Read the Excel files
+# Note: You may need to save as CSV first, or use readxl package
+# install.packages("readxl")
+library(readxl)
+
+china <- read_excel("C://Users//mfoum//Downloads//ai_China_hardware_demand.xlsx", sheet = "Sheet1")
+skorea <- read_excel("C://Users//mfoum//Downloads//ai_SouthKorea_hardware_demand.xlsx", sheet = "Sheet1")
+
+# View structure
+str(china)
+head(china)
+
+# Rename columns for easier handling
+colnames(china) <- c("Year", "GPU_Demand", "Data_Centers", "Compute_Power", 
+                     "Cloud_Investment", "Training_FLOPS", "Model_Count")
+colnames(skorea) <- c("Year", "GPU_Demand", "Data_Centers", "Compute_Power", 
+                      "Cloud_Investment", "Training_FLOPS", "Model_Count")
+
+# Create historical data (1990-2025) - excluding projections (2025-2036)
+china_hist <- china %>% filter(Year <= 2025)
+skorea_hist <- skorea %>% filter(Year <= 2025)
+
+# Check row counts
+nrow(china_hist)  # Should be 36 years 
+nrow(skorea_hist) # Should be 36 years
+
+# Create log-transformed variables (to estimate elasticities)
+china_hist <- china_hist %>%
+  mutate(
+    ln_GPU = log(GPU_Demand + 0.001),  # +0.001 to handle zeros in 1990-2012
+    ln_DC = log(Data_Centers + 0.001),
+    ln_CP = log(Compute_Power + 0.001),
+    ln_Inv = log(Cloud_Investment + 0.001),
+    ln_FLOPS = log(Training_FLOPS + 0.001),
+    ln_Models = log(Model_Count + 0.001)
+  )
+
+skorea_hist <- skorea_hist %>%
+  mutate(
+    ln_GPU = log(GPU_Demand + 0.001),
+    ln_DC = log(Data_Centers + 0.001),
+    ln_CP = log(Compute_Power + 0.001),
+    ln_Inv = log(Cloud_Investment + 0.001),
+    ln_FLOPS = log(Training_FLOPS + 0.001),
+    ln_Models = log(Model_Count + 0.001)
+  )
+
+# Create time series objects for stationarity tests
+gpu_china_ts <- ts(china_hist$ln_GPU, start = 1990, frequency = 1)
+gpu_skorea_ts <- ts(skorea_hist$ln_GPU, start = 1990, frequency = 1)
+
+
+# Step 3: Exploratory Data Analysis
+
+# 1. Plot GPU Demand Trends (for Figure 1 in your paper)
+ggplot() +
+  geom_line(data = china_hist, aes(x = Year, y = GPU_Demand, color = "China")) +
+  geom_line(data = skorea_hist, aes(x = Year, y = GPU_Demand, color = "South Korea")) +
+  scale_color_manual(values = c("China" = "red", "South Korea" = "blue")) +
+  labs(
+    title = "AI GPU Demand Trends: China vs. South Korea (1990-2025)",
+    x = "Year",
+    y = "AI GPU Demand",
+    color = "Country"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# 2. Correlation Matrices (Table 1 in your paper)
+# China
+
+# China scatter plot matrix
+chart.Correlation(china_hist[, c("ln_GPU", "ln_DC", "ln_CP", "ln_Inv", "ln_FLOPS", "ln_Models")],
+                  histogram = TRUE,         # Shows histograms on diagonal
+                  pch = 19,                 # Plot character
+                  col = "red",              # Color of points
+                  title = "China: Scatter Plot Matrix")
+
+# South Korea scatter plot matrix
+chart.Correlation(skorea_hist[, c("ln_GPU", "ln_DC", "ln_CP", "ln_Inv", "ln_FLOPS", "ln_Models")],
+                  histogram = TRUE,
+                  pch = 19,
+                  col = "blue",
+                  title = "South Korea: Scatter Plot Matrix")
+
+
+
+
+cor_china <- china_hist %>%
+  dplyr::select(ln_GPU, ln_DC, ln_CP, ln_Inv, ln_FLOPS, ln_Models) %>%
+  cor()
+
+corrplot.mixed(cor_china, 
+               lower = "ellipse",    # Or "circle", "square", "number"
+               upper = "number",     # Shows correlation coefficients
+               tl.col = "black",     # Text label color
+               tl.cex = 0.8,         # Text label size
+               number.cex = 0.8,     # Number size
+               title = "China Correlation Matrix",
+               mar = c(0, 0, 2, 0))  # Margin for title
+
+# South Korea Correlation Matrix
+cor_skorea <- skorea_hist %>%
+  dplyr::select(ln_GPU, ln_DC, ln_CP, ln_Inv, ln_FLOPS, ln_Models) %>%
+  cor()
+
+corrplot.mixed(cor_skorea, 
+               lower = "ellipse",    # Shows scatter plot/ellipse
+               upper = "number",     # Shows correlation coefficients
+               tl.col = "black",
+               tl.cex = 0.8,
+               number.cex = 0.8,
+               title = "South Korea Correlation Matrix",
+               mar = c(0, 0, 2, 0))
+
+# Corrected descriptive statistics function
+desc_stats <- function(data, country_name) {
+  data %>%
+    dplyr::select(GPU_Demand, Data_Centers, Compute_Power, Cloud_Investment, Training_FLOPS, Model_Count) %>%
+    summarise(
+      GPU_Mean = mean(GPU_Demand, na.rm = TRUE),
+      GPU_SD = sd(GPU_Demand, na.rm = TRUE),
+      GPU_Min = min(GPU_Demand, na.rm = TRUE),
+      GPU_Max = max(GPU_Demand, na.rm = TRUE),
+      DC_Mean = mean(Data_Centers, na.rm = TRUE),
+      DC_SD = sd(Data_Centers, na.rm = TRUE),
+      CP_Mean = mean(Compute_Power, na.rm = TRUE),
+      CP_SD = sd(Compute_Power, na.rm = TRUE),
+      Inv_Mean = mean(Cloud_Investment, na.rm = TRUE),
+      Inv_SD = sd(Cloud_Investment, na.rm = TRUE),
+      Models_Mean = mean(Model_Count, na.rm = TRUE),
+      Models_SD = sd(Model_Count, na.rm = TRUE)
+    ) %>%
+    mutate(Country = country_name)  # Add country after summarise
+}
+
+# Run the function
+stats_china <- desc_stats(china_hist, "China")
+stats_skorea <- desc_stats(skorea_hist, "South Korea")
+
+# Combine results
+stats_combined <- bind_rows(stats_china, stats_skorea)
+print(stats_combined)
+
+
+# Step 4: Regression Analysis (Main Results)
+
+# 4.1 Full Sample Regression - China (1990-2025)
+lm_china_full <- lm(ln_GPU ~ ln_DC + ln_CP + ln_Inv + ln_FLOPS + ln_Models, 
+                    data = china_hist)
+
+summary(lm_china_full)
+
+# Check VIF for multicollinearity
+vif_china <- vif(lm_china_full)
+print(vif_china)
+
+# 4.2 Full Sample Regression - South Korea
+lm_skorea_full <- lm(ln_GPU ~ ln_DC + ln_CP + ln_Inv + ln_FLOPS + ln_Models, 
+                     data = skorea_hist)
+
+summary(lm_skorea_full)
+
+vif_skorea <- vif(lm_skorea_full)
+print(vif_skorea)
+
+# 4.3 Regression using First Differences (if non-stationary)
+# Remove NA rows
+china_diff <- china_hist %>% filter(!is.na(d_ln_GPU))
+skorea_diff <- skorea_hist %>% filter(!is.na(d_ln_GPU))
+
+lm_china_diff <- lm(d_ln_GPU ~ d_ln_DC + d_ln_CP + d_ln_Inv + d_ln_FLOPS + d_ln_Models, 
+                    data = china_diff)
+
+summary(lm_china_diff)
+
+lm_skorea_diff <- lm(d_ln_GPU ~ d_ln_DC + d_ln_CP + d_ln_Inv + d_ln_FLOPS + d_ln_Models, 
+                     data = skorea_diff)
+
+summary(lm_skorea_diff)
+
+# 4.4 Structural Break: Split at 2012 (Pre vs. Post Deep Learning)
+china_pre2012 <- china_hist %>% filter(Year <= 2013)
+china_post2012 <- china_hist %>% filter(Year >= 2014)
+
+skorea_pre2012 <- skorea_hist %>% filter(Year <= 2013)
+skorea_post2012 <- skorea_hist %>% filter(Year >= 2014)
+
+# China Pre-2012
+lm_china_pre <- lm(ln_GPU ~ ln_DC + ln_CP + ln_Inv + ln_FLOPS + ln_Models, 
+                   data = china_pre2012)
+summary(lm_china_pre)
+
+# China Post-2012
+lm_china_post <- lm(ln_GPU ~ ln_DC + ln_CP + ln_Inv + ln_FLOPS + ln_Models, 
+                    data = china_post2012)
+summary(lm_china_post)
+
+# South Korea Pre-2012
+lm_skorea_pre <- lm(ln_GPU ~ ln_DC + ln_CP + ln_Inv + ln_FLOPS + ln_Models, 
+                    data = skorea_pre2012)
+summary(lm_skorea_pre)
+
+# South Korea Post-2012
+lm_skorea_post <- lm(ln_GPU ~ ln_DC + ln_CP + ln_Inv + ln_FLOPS + ln_Models, 
+                     data = skorea_post2012)
+summary(lm_skorea_post)
+
+
+
+# Step 5: Diagnostic Tests
+
+# 5.1 Durbin-Watson Test (Autocorrelation)
+dw_china <- dwtest(lm_china_full)
+dw_skorea <- dwtest(lm_skorea_full)
+
+print(dw_china)
+print(dw_skorea)
+
+# 5.2 Breusch-Pagan Test (Heteroscedasticity)
+bp_china <- bptest(lm_china_full)
+bp_skorea <- bptest(lm_skorea_full)
+
+print(bp_china)
+print(bp_skorea)
+
+# 5.3 Residual Plots (for Figure 2)
+par(mfrow = c(2, 2))
+plot(lm_china_full, main = "China Residual Diagnostics")
+plot(lm_skorea_full, main = "South Korea Residual Diagnostics")
+
+# 5.4 If autocorrelation exists, use Newey-West standard errors
+# install.packages("sandwich")
+library(sandwich)
+library(lmtest)
+
+coeftest(lm_china_full, vcov = NeweyWest(lm_china_full, lag = 1))
+coeftest(lm_skorea_full, vcov = NeweyWest(lm_skorea_full, lag = 1))
+
+
+# Step 6: Relative Importance (Standardized Coefficients)
+
+# 6.1 Compute standardized coefficients (beta weights)
+# Using lm.beta package
+# install.packages("lm.beta")
+library(lm.beta)
+
+lm_china_beta <- lm.beta(lm_china_full)
+summary(lm_china_beta)
+
+lm_skorea_beta <- lm.beta(lm_skorea_full)
+summary(lm_skorea_beta)
+
+# 6.2 Extract standardized coefficients for comparison
+beta_china <- coef(lm_china_beta)[-1]  # Remove intercept
+beta_skorea <- coef(lm_skorea_beta)[-1]
+
+# Create comparison table
+beta_comparison <- data.frame(
+  Driver = names(beta_china),
+  China_Beta = round(beta_china, 3),
+  SouthKorea_Beta = round(beta_skorea, 3)
+)
+
+print(beta_comparison)
+
+# 6.3 Bar chart for Figure 3
+beta_long <- beta_comparison %>%
+  pivot_longer(cols = c(China_Beta, SouthKorea_Beta), 
+               names_to = "Country", values_to = "Beta")
+
+ggplot(beta_long, aes(x = Driver, y = Beta, fill = Country)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Relative Importance of AI GPU Demand Drivers",
+    x = "Driver Variable",
+    y = "Standardized Coefficient (Beta)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+dev.off()
