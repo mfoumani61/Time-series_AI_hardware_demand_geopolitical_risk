@@ -1,12 +1,3 @@
-├── R/
-│   ├── 01_setup.R
-│   ├── 02_data_cleaning.R
-│   ├── 03_descriptives_plots.R
-│   ├── 04_structural_break.R
-│   ├── 05_relative_importance.R
-│   ├── 06_regressions_models_7_8.R
-│   └── 07_outputs_tables_figures.R
-
 # Step 1: Load Required Packages
 
 # Install if not already installed
@@ -84,7 +75,7 @@ gpu_skorea_ts <- ts(skorea_hist$ln_GPU, start = 1990, frequency = 1)
 
 # Step 3: Exploratory Data Analysis
 
-# 1. Plot GPU Demand Trends
+# 3.1. Plot GPU Demand Trends
 ggplot() +
   geom_line(data = china_hist, aes(x = Year, y = GPU_Demand, color = "China")) +
   geom_line(data = skorea_hist, aes(x = Year, y = GPU_Demand, color = "South Korea")) +
@@ -98,7 +89,7 @@ ggplot() +
   theme_minimal() +
   theme(legend.position = "bottom")
 
-# 2. Correlation Matrices 
+# 3.2. Correlation Matrices 
 # China
 
 # China scatter plot matrix
