@@ -84,7 +84,7 @@ gpu_skorea_ts <- ts(skorea_hist$ln_GPU, start = 1990, frequency = 1)
 
 # Step 3: Exploratory Data Analysis
 
-# 1. Plot GPU Demand Trends (for Figure 1 in your paper)
+# 1. Plot GPU Demand Trends
 ggplot() +
   geom_line(data = china_hist, aes(x = Year, y = GPU_Demand, color = "China")) +
   geom_line(data = skorea_hist, aes(x = Year, y = GPU_Demand, color = "South Korea")) +
@@ -98,7 +98,7 @@ ggplot() +
   theme_minimal() +
   theme(legend.position = "bottom")
 
-# 2. Correlation Matrices (Table 1 in your paper)
+# 2. Correlation Matrices 
 # China
 
 # China scatter plot matrix
@@ -311,4 +311,87 @@ ggplot(beta_long, aes(x = Driver, y = Beta, fill = Country)) +
   theme_minimal() +
   theme(legend.position = "bottom")
 
+# Step 7: Generate Publication-Ready Tables
+
+# 7.1 Using stargazer for regression tables
+stargazer(lm_china_full, lm_skorea_full,
+          title = "Regression Results: China vs. South Korea",
+          dep.var.labels = "ln(AI GPU Demand)",
+          covariate.labels = c("ln(Data Centers)", "ln(Compute Power)", 
+                               "ln(Cloud Investment)", "ln(Training FLOPS)", 
+                               "ln(Model Count)"),
+          column.labels = c("China", "South Korea"),
+          type = "html",  # or "text" for console output
+          out = "regression_table.html")
+
+# 7.2 Export results to CSV
+write.csv(beta_comparison, "beta_comparison.csv", row.names = FALSE)
+write.csv(adf_results, "adf_results.csv", row.names = FALSE)
+
+# 7.3 Create summary table of all models
+model_summary <- data.frame(
+  Model = c("China Full", "SK Full", "China Pre-2012", "China Post-2012", 
+            "SK Pre-2012", "SK Post-2012"),
+  R2 = c(summary(lm_china_full)$r.squared,
+         summary(lm_skorea_full)$r.squared,
+         summary(lm_china_pre)$r.squared,
+         summary(lm_china_post)$r.squared,
+         summary(lm_skorea_pre)$r.squared,
+         summary(lm_skorea_post)$r.squared),
+  Adj_R2 = c(summary(lm_china_full)$adj.r.squared,
+             summary(lm_skorea_full)$adj.r.squared,
+             summary(lm_china_pre)$adj.r.squared,
+             summary(lm_china_post)$adj.r.squared,
+             summary(lm_skorea_pre)$adj.r.squared,
+             summary(lm_skorea_post)$adj.r.squared),
+  AIC = c(AIC(lm_china_full), AIC(lm_skorea_full),
+          AIC(lm_china_pre), AIC(lm_china_post),
+          AIC(lm_skorea_pre), AIC(lm_skorea_post))
+)
+
+write.csv(model_summary, "model_summary.csv", row.names = FALSE)
+
+
+
+
+# Step 8: Additional Visualizations for Paper
+
+# 8.1 Log-transformed trends (Figure 4)
+ggplot() +
+  geom_line(data = china_hist, aes(x = Year, y = ln_GPU, color = "China")) +
+  geom_line(data = skorea_hist, aes(x = Year, y = ln_GPU, color = "South Korea")) +
+  scale_color_manual(values = c("China" = "red", "South Korea" = "blue")) +
+  labs(
+    title = "Log-Transformed AI GPU Demand (1990-2024)",
+    x = "Year",
+    y = "ln(AI GPU Demand)",
+    color = "Country"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# 8.2 Scatter plot: GPU Demand vs. Compute Power
+ggplot() +
+  geom_point(data = china_hist, aes(x = ln_CP, y = ln_GPU, color = "China")) +
+  geom_point(data = skorea_hist, aes(x = ln_CP, y = ln_GPU, color = "South Korea")) +
+  geom_smooth(data = china_hist, aes(x = ln_CP, y = ln_GPU), method = "lm", se = FALSE, color = "red") +
+  geom_smooth(data = skorea_hist, aes(x = ln_CP, y = ln_GPU), method = "lm", se = FALSE, color = "blue") +
+  labs(
+    title = "GPU Demand vs. Compute Power",
+    x = "ln(Compute Power)",
+    y = "ln(GPU Demand)",
+    color = "Country"
+  ) +
+  theme_minimal()
+
+# 8.3 Residual plots for final paper
+# Save residual diagnostic plots
+png("residuals_china.png", width = 800, height = 600)
+par(mfrow = c(2, 2))
+plot(lm_china_full)
+dev.off()
+
+png("residuals_skorea.png", width = 800, height = 600)
+par(mfrow = c(2, 2))
+plot(lm_skorea_full)
 dev.off()
